@@ -7,7 +7,7 @@ GUI версия LBKI CSV: Графический интерфейс.
 import sys
 import os
 import tkinter as tk
-from tkinter import filedialog, Listbox, Scrollbar, END, simpledialog, Text
+from tkinter import filedialog, Listbox, Scrollbar, END, simpledialog, Text, ttk
 from lbki_csv import *
 
 class LogWindow:
@@ -26,7 +26,7 @@ class LogWindow:
     
     def log(self, message, level="INFO"):
         """Добавляет сообщение в лог"""
-        # Определяем цвет по уровн��
+        # Определяем цвет по ур��вню
         if level == "ERROR":
             prefix = "❌ "
             color = "red"
@@ -56,7 +56,16 @@ class LogWindow:
         self.text.config(state=tk.DISABLED)
 
 class LBKICSVApp:
-    def __init__(self, root, file_path=None):
+    DELIMITERS = {
+        "Запятая (,)": ",",
+        "Точка с запятой (;)": ";",
+        "Табуляция (\\t)": "\t",
+        "Пробел ( )": " ",
+        "Двоеточие (:)": ":",
+        "Автоопределение": None
+    }
+    
+    def __init__(self, root, file_path=None, delimiter=None):
         self.root = root
         self.root.title("LBKI CSV — GUI")
         self.root.geometry("750x600")
@@ -67,6 +76,8 @@ class LBKICSVApp:
         self.current_headers = None
         self.current_rows = None
         self.encoding = 'utf-8'
+        self.delimiter = delimiter  # Пользовательский разделитель
+        self.detected_delimiter = ','  # Автоопределённый разделитель
         
         # Создаём окно логирования
         self.log_window = LogWindow(self.root)
@@ -85,9 +96,20 @@ class LBKICSVApp:
         self.file_label = tk.Label(self.root, text="", font=("Arial", 10), fg="#1976D2")
         self.file_label.pack(pady=5)
         
+        # Фрейм для кнопок и выбора разделителя
+        button_frame = tk.Frame(self.root)
+        button_frame.pack(pady=5)
+        
         # Кнопка открытия файла
-        tk.Button(self.root, text="📂 Открыть CSV", command=self.load_file,
-                  bg="#4CAF50", fg="white", width=30).pack(pady=5)
+        tk.Button(button_frame, text="📂 Открыть CSV", command=self.load_file,
+                  bg="#4CAF50", fg="white", width=20).pack(side=tk.LEFT, padx=5)
+        
+        # Выбор разделителя
+        tk.Label(button_frame, text="Разделитель:").pack(side=tk.LEFT, padx=5)
+        self.delimiter_var = tk.StringVar(value="Автоопределение")
+        delimiter_combo = ttk.Combobox(button_frame, textvariable=self.delimiter_var, 
+                                       values=list(self.DELIMITERS.keys()), state="readonly", width=20)
+        delimiter_combo.pack(side=tk.LEFT, padx=5)
 
         # Информация о данных
         self.info = tk.Label(self.root, text="Файл не загружен", fg="gray")
@@ -122,7 +144,7 @@ class LBKICSVApp:
                   bg="#2196F3", fg="white").pack(pady=10)
 
     def load_file(self):
-        path = filedialog.askopenfilename(filetypes=[("CSV", "*.csv")])
+        path = filedialog.askopenfilename(filetypes=[("CSV", "*.csv"), ("All files", "*.*")])
         if not path: return
         self.load_file_from_path(path)
 
@@ -133,7 +155,12 @@ class LBKICSVApp:
             return
         
         self.file_path = path
-        headers, rows, encoding = read_csv(path)
+        
+        # Получаем разделитель из dropdown или используем переданный
+        delimiter_name = self.delimiter_var.get()
+        delimiter = self.DELIMITERS.get(delimiter_name)
+        
+        headers, rows, encoding, detected_delim = read_csv(path, delimiter)
         if headers is None:
             self.log_window.log("Не удалось прочитать файл", "ERROR")
             return
@@ -144,6 +171,7 @@ class LBKICSVApp:
         self.current_headers = headers
         self.current_rows = rows
         self.encoding = encoding or 'utf-8'
+        self.detected_delimiter = detected_delim
         
         # Получаем имя файла
         file_name = os.path.basename(path)
@@ -159,8 +187,9 @@ class LBKICSVApp:
         self.listbox.config(state=tk.NORMAL)
         
         # Логируем
+        delim_display = repr(detected_delim) if detected_delim else "автоопределение"
         self.log_window.log(f"Файл загружен: {file_name}", "SUCCESS")
-        self.log_window.log(f"Кодировка: {encoding}, Разделитель: автоопределение", "INFO")
+        self.log_window.log(f"Кодировка: {encoding}, Разделитель: {delim_display}", "INFO")
         self.log_window.log(f"Данные: {len(headers)} столбцов, {len(rows)} строк", "INFO")
 
     def update_info(self):
@@ -189,7 +218,7 @@ class LBKICSVApp:
                 cnt, cols = count_rows(self.current_headers, self.current_rows)
                 self.log_window.log(f"Подсчёт: {cnt} строк, {cols} столбцов", "INFO")
                 self.show_data_window(f"Результат: {cnt} строк, {cols} столбцов", 
-                                     ["Метрика", "Зна��ение"],
+                                     ["Метрика", "Значение"],
                                      [["Строк", str(cnt)], ["Столбцов", str(cols)]])
             
             elif i == 1:  # Показать первые N
@@ -260,10 +289,17 @@ class LBKICSVApp:
                 if not self.current_headers:
                     self.log_window.log("Нет данных для сохранения", "WARNING")
                     return
-                file_out = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV", "*.csv")])
+                
+                # Диалог выбора разделителя для сохранения
+                save_delim = self.show_delimiter_dialog()
+                if save_delim is None:
+                    return
+                
+                file_out = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV", "*.csv"), ("All files", "*.*")])
                 if file_out:
-                    if write_csv(file_out, self.current_headers, self.current_rows, self.encoding):
-                        self.log_window.log(f"Файл сохранён: {file_out}", "SUCCESS")
+                    if write_csv(file_out, self.current_headers, self.current_rows, self.encoding, save_delim):
+                        delim_display = repr(save_delim)
+                        self.log_window.log(f"Файл сохранён: {file_out} (разделитель: {delim_display})", "SUCCESS")
                     else:
                         self.log_window.log("Ошибка при сохранении файла", "ERROR")
             
@@ -272,6 +308,39 @@ class LBKICSVApp:
                 self.current_rows = self.original_rows
                 self.update_info()
                 self.log_window.log("Данные сброшены к исходным", "INFO")
+
+    def show_delimiter_dialog(self):
+        """Показывает диалог выбора разделителя для сохранения"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Выбор разделителя")
+        dialog.geometry("300x220")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        tk.Label(dialog, text="Выберите разделитель для сохранения:", font=("Arial", 10)).pack(pady=10)
+        
+        delimiter_var = tk.StringVar(value="Запятая (,)")
+        for delim_name in self.DELIMITERS.keys():
+            if delim_name != "Автоопределение":
+                tk.Radiobutton(dialog, text=delim_name, variable=delimiter_var, value=delim_name).pack(anchor=tk.W, padx=20)
+        
+        result = [None]
+        
+        def ok():
+            delim_name = delimiter_var.get()
+            result[0] = self.DELIMITERS[delim_name]
+            dialog.destroy()
+        
+        def cancel():
+            dialog.destroy()
+        
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(pady=10)
+        tk.Button(button_frame, text="OK", command=ok, width=10).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Отмена", command=cancel, width=10).pack(side=tk.LEFT, padx=5)
+        
+        self.root.wait_window(dialog)
+        return result[0]
 
     def show_data_window(self, title, headers, rows):
         """Показывает данные в отдельном окне"""
@@ -300,8 +369,22 @@ if __name__ == "__main__":
     
     # Проверяем, передан ли файл в argv
     file_path = None
+    delimiter = None
     if len(sys.argv) > 1:
         file_path = sys.argv[1]
+    if len(sys.argv) > 2:
+        # Второй аргумент - разделитель
+        delim_arg = sys.argv[2]
+        if delim_arg == "comma":
+            delimiter = ","
+        elif delim_arg == "semicolon":
+            delimiter = ";"
+        elif delim_arg == "tab":
+            delimiter = "\t"
+        elif delim_arg == "space":
+            delimiter = " "
+        elif delim_arg == "colon":
+            delimiter = ":"
     
-    app = LBKICSVApp(root, file_path)
+    app = LBKICSVApp(root, file_path, delimiter)
     root.mainloop()

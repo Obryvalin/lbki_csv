@@ -35,30 +35,33 @@ def detect_delimiter(file_path, encoding):
             best_delim = delim
     return best_delim if max_count > 0 else ','
 
-def read_csv(file_path):
-    """Читаем CSV → (headers, rows, encoding)."""
+def read_csv(file_path, delimiter=None):
+    """Читаем CSV → (headers, rows, encoding, delimiter).
+    Если delimiter=None, автоматически опр��деляем."""
     encoding = detect_encoding(file_path)
     if not encoding:
-        return None, None, None
+        return None, None, None, None
 
-    delimiter = detect_delimiter(file_path, encoding)
+    if delimiter is None:
+        delimiter = detect_delimiter(file_path, encoding)
+    
     try:
         with open(file_path, 'r', encoding=encoding) as f:
             reader = csv.reader(f, delimiter=delimiter)
             data = list(reader)
         if not data:
-            return [], [], encoding
+            return [], [], encoding, delimiter
         headers = data[0]
         rows = data[1:]
-        return headers, rows, encoding
+        return headers, rows, encoding, delimiter
     except Exception:
-        return None, None, None
+        return None, None, None, None
 
-def write_csv(file_path, headers, rows, encoding='utf-8'):
-    """Сохраняем CSV."""
+def write_csv(file_path, headers, rows, encoding='utf-8', delimiter=','):
+    """Сохраняем CSV с указанным разделителем."""
     try:
         with open(file_path, 'w', encoding=encoding, newline='') as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f, delimiter=delimiter)
             writer.writerow(headers)
             writer.writerows(rows)
         return True

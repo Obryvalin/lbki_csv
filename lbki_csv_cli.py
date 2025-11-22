@@ -4,8 +4,10 @@ CLI версия LBKI CSV: Консольный интерфейс.
 Поддерживает интерактивный режим и режим с argv для последовательности действий.
 
 Примеры:
-  python lbki_csv_cli.py data.csv                    # Интерактивный режим
-  python lbki_csv_cli.py data.csv 4 3 8 output.csv   # Выбрать столбцы, удалить дубли, сохранить
+  python lbki_csv_cli.py data.csv                                    # Интерактивный режим
+  python lbki_csv_cli.py data.csv --delim semicolon                  # Интерактивный с разделителем
+  python lbki_csv_cli.py data.csv 4 5 8 output.csv                   # Пакетный режим
+  python lbki_csv_cli.py data.csv --delim tab 4 5 8 output.csv       # Пакетный с разделителем
 """
 
 import sys
@@ -18,7 +20,7 @@ def print_menu():
     print("МЕНЮ ДЕЙСТВИЙ:")
     print("1. Подсчитать строки")
     print("2. Показать первые N строк")
-    print("3. Фильтр по текс��у")
+    print("3. Фильтр по тексту")
     print("4. Выбрать столбцы")
     print("5. Удалить дубли")
     print("6. Свод по столбцу")
@@ -27,6 +29,20 @@ def print_menu():
     print("9. Сбросить к исходным")
     print("0. Выход")
     print("="*50)
+
+def parse_delimiter(delim_arg):
+    """Парсит аргумент разделителя"""
+    if delim_arg == "comma":
+        return ","
+    elif delim_arg == "semicolon":
+        return ";"
+    elif delim_arg == "tab":
+        return "\t"
+    elif delim_arg == "space":
+        return " "
+    elif delim_arg == "colon":
+        return ":"
+    return None
 
 def execute_action(action, headers, rows, original_headers, original_rows):
     """Выполняет действие и возвращает (headers, rows, should_continue)"""
@@ -137,11 +153,11 @@ def execute_action(action, headers, rows, original_headers, original_rows):
         print("✗ Неверный выбор")
         return headers, rows, True
 
-def interactive_mode(file_path):
+def interactive_mode(file_path, delimiter=None):
     """Интерактивный режим"""
     print(f"\n[LBKI CSV] Обрабатываю: {file_path}")
     
-    headers, rows, encoding = read_csv(file_path)
+    headers, rows, encoding, detected_delim = read_csv(file_path, delimiter)
     if headers is None:
         print("✗ Не удалось прочитать файл")
         return
@@ -150,6 +166,7 @@ def interactive_mode(file_path):
     original_rows = rows
     
     print(f"✓ Кодировка: {encoding}")
+    print(f"✓ Разделитель: {repr(detected_delim)}")
     print(f"✓ Загружено: {len(headers)} столбцов, {len(rows)} строк")
     
     while True:
@@ -167,19 +184,20 @@ def interactive_mode(file_path):
         except ValueError:
             print("✗ Введите число")
 
-def batch_mode(file_path, actions, output_file):
+def batch_mode(file_path, actions, output_file, delimiter=None, output_delimiter=None):
     """Режим пакетной обработки через argv"""
     print(f"\n[LBKI CSV] Обрабатываю: {file_path}")
     
-    headers, rows, encoding = read_csv(file_path)
+    headers, rows, encoding, detected_delim = read_csv(file_path, delimiter)
     if headers is None:
-        print("✗ Не удалось прочитать файл")
+        print("✗ Не удалось п��очитать файл")
         return
     
     original_headers = headers
     original_rows = rows
     
     print(f"✓ Кодировка: {encoding}")
+    print(f"✓ Разделитель: {repr(detected_delim)}")
     print(f"✓ Загружено: {len(headers)} столбцов, {len(rows)} строк")
     
     # Выполняем действия
@@ -198,8 +216,10 @@ def batch_mode(file_path, actions, output_file):
     if output_file:
         if not output_file.endswith('.csv'):
             output_file += '.csv'
-        if write_csv(output_file, headers, rows, encoding):
-            print(f"\n✓ Результат сохранён: {output_file}")
+        # Используем разделитель для сохранения или автоопределённый
+        save_delim = output_delimiter if output_delimiter else detected_delim
+        if write_csv(output_file, headers, rows, encoding, save_delim):
+            print(f"\n✓ Результат сохранён: {output_file} (разделитель: {repr(save_delim)})")
         else:
             print("✗ Ошибка при сохранении")
     else:
@@ -208,12 +228,16 @@ def batch_mode(file_path, actions, output_file):
 def main():
     if len(sys.argv) < 2:
         print("Использование:")
-        print("  python lbki_csv_cli.py <файл.csv>                    # Интерактивный режим")
-        print("  python lbki_csv_cli.py <файл.csv> 4 5 8 <output.csv> # Пакетный режим")
+        print("  python lbki_csv_cli.py <файл.csv>                                    # Интерактивный режим")
+        print("  python lbki_csv_cli.py <файл.csv> --delim <delim>                    # Интерактивный с разделителем")
+        print("  python lbki_csv_cli.py <файл.csv> 4 5 8 <output.csv>                 # Пакетный режим")
+        print("  python lbki_csv_cli.py <файл.csv> --delim <delim> 4 5 8 <output.csv> # Пакетный с разделителем")
+        print("\nРазделители:")
+        print("  comma, semicolon, tab, space, colon")
         print("\nДействия:")
         print("  1 - Подсчитать строки")
         print("  2 - Показать первые N")
-        print("  3 - Поиск")
+        print("  3 - Фильтр по тексту")
         print("  4 - Выбрать столбцы")
         print("  5 - Удалить дубли")
         print("  6 - Свод по столбцу")
@@ -228,15 +252,32 @@ def main():
         print(f"✗ Файл не найден: {file_path}")
         sys.exit(1)
     
+    # Парсим аргументы
+    delimiter = None
+    output_delimiter = None
+    args_start = 2
+    
+    # Проверяем флаг --delim для входного файла
+    if len(sys.argv) > 2 and sys.argv[2] == "--delim" and len(sys.argv) > 3:
+        delimiter = parse_delimiter(sys.argv[3])
+        args_start = 4
+    
     # Проверяем, есть ли действия в argv
-    if len(sys.argv) > 2:
+    if len(sys.argv) > args_start:
         # Пакетный режим
-        actions = sys.argv[2:-1]
+        actions = sys.argv[args_start:-1]
         output_file = sys.argv[-1]
-        batch_mode(file_path, actions, output_file)
+        
+        # Проверяем флаг --out-delim перед выходным файлом
+        if len(sys.argv) > args_start + 1 and sys.argv[-2] == "--out-delim":
+            output_delimiter = parse_delimiter(sys.argv[-3])
+            output_file = sys.argv[-1]
+            actions = sys.argv[args_start:-3]
+        
+        batch_mode(file_path, actions, output_file, delimiter, output_delimiter)
     else:
         # Интерактивный режим
-        interactive_mode(file_path)
+        interactive_mode(file_path, delimiter)
 
 if __name__ == "__main__":
     main()
