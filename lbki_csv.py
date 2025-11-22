@@ -36,7 +36,7 @@ def detect_delimiter(file_path, encoding):
     return best_delim if max_count > 0 else ','
 
 def read_csv(file_path):
-    """Читаем CSV → (headers, rows)."""
+    """Читаем CSV → (headers, rows, encoding)."""
     encoding = detect_encoding(file_path)
     if not encoding:
         return None, None, None
@@ -65,20 +65,20 @@ def write_csv(file_path, headers, rows, encoding='utf-8'):
     except Exception:
         return False
 
-# === Функции обработки ===
+# === Функции обработки (возвращают (headers, rows)) ===
 
 def count_rows(headers, rows):
-    """Подсчёт строк."""
+    """Подсчёт строк - только информация, не изменяет данные."""
     return len(rows), len(headers)
 
 def get_first_n(headers, rows, n):
     """Первые N строк."""
     return headers, rows[:n]
 
-def search_in_rows(headers, rows, query):
-    """Поиск по подстроке."""
-    matches = [row for row in rows if any(query.lower() in cell.lower() for cell in row)]
-    return headers, matches
+def filter_by_text(headers, rows, query):
+    """Фильтр по подстроке - оставляет только строки с найденным значением."""
+    filtered = [row for row in rows if any(query.lower() in cell.lower() for cell in row)]
+    return headers, filtered
 
 def select_columns(headers, rows, col_names):
     """Выбор столбцов."""
@@ -87,13 +87,9 @@ def select_columns(headers, rows, col_names):
         if name in headers:
             indices.append(headers.index(name))
         else:
-            return None, f"Столбец не найден: {name}"
+            return None, None
     new_rows = [[row[i] for i in indices] for row in rows]
     return [headers[i] for i in indices], new_rows
-
-def change_encoding_data(headers, rows, target_encoding):
-    """Меняем кодировку при записи."""
-    return headers, rows, target_encoding
 
 def remove_duplicates(headers, rows):
     """Удаление дублей."""
@@ -109,7 +105,7 @@ def remove_duplicates(headers, rows):
 def group_by_column(headers, rows, col_name):
     """Свод по столбцу."""
     if col_name not in headers:
-        return None, f"Столбец не найден: {col_name}"
+        return None, None
     idx = headers.index(col_name)
     count_dict = {}
     for row in rows:

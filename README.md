@@ -34,12 +34,12 @@
 ### Консольная версия
 
 ```bash
-python lbki_csv.py ваш_файл.csv
+python lbki_csv_cli.py ваш_файл.csv
 ```
 
 **Пример:**
 ```bash
-python lbki_csv.py test_data.csv
+python lbki_csv_cli.py test_data.csv
 ```
 
 **Вывод:**

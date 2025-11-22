@@ -1,178 +1,242 @@
 # -*- coding: utf-8 -*-
 """
-CLI версия LBKI CSV: меню или команды через argv.
+CLI версия LBKI CSV: Консольный интерфейс.
+Поддерживает интерактивный режим и режим с argv для последовательности действий.
+
+Примеры:
+  python lbki_csv_cli.py data.csv                    # Интерактивный режим
+  python lbki_csv_cli.py data.csv 4 3 8 output.csv   # Выбрать столбцы, удалить дубли, сохранить
 """
 
 import sys
 import os
 from lbki_csv import *
 
-def print_help():
-    print("""
-Использование:
-  python lbki_cli.py <файл.csv>                        → запуск меню
-  python lbki_cli.py <файл.csv> --count                → подсчитать строки
-  python lbki_cli.py <файл.csv> --head N               → первые N строк
-  python lbki_cli.py <файл.csv> --search "текст"       → поиск
-  python lbki_cli.py <файл.csv> --select col1,col2     → выбрать столбцы
-  python lbki_cli.py <файл.csv> --dedup --zip 1000     → удалить дубли + разделить в ZIP
-    """)
-    sys.exit(1)
+def print_menu():
+    """Выводит меню действий"""
+    print("\n" + "="*50)
+    print("МЕНЮ ДЕЙСТВИЙ:")
+    print("1. Подсчитать строки")
+    print("2. Показать первые N строк")
+    print("3. Фильтр по текс��у")
+    print("4. Выбрать столбцы")
+    print("5. Удалить дубли")
+    print("6. Свод по столбцу")
+    print("7. Разделить в ZIP")
+    print("8. Сохранить результат")
+    print("9. Сбросить к исходным")
+    print("0. Выход")
+    print("="*50)
 
-def main_menu(headers, rows, file_path):
-    while True:
-        print("\n" + "="*60)
-        print("LBKI CSV — CLI")
-        print("1. Подсчитать строки")
-        print("2. Показать первые N строк")
-        print("3. Поиск по строке")
-        print("4. Выбрать столбцы")
-        print("5. Сменить кодировку")
-        print("6. Удалить дубли")
-        print("7. Свод по столбцу")
-        print("8. Разделить и упаковать в ZIP")
-        print("9. Выйти")
-        choice = input("\nВыберите: ").strip()
-
-        if choice == '1':
-            cnt, cols = count_rows(headers, rows)
-            print(f"\nСтрок: {cnt}, Столбцов: {cols}")
-
-        elif choice == '2':
-            try:
-                n = int(input("N = "))
-                h, r = get_first_n(headers, rows, n)
-                print("\t".join(h))
-                for row in r:
-                    print("\t".join(row))
-            except:
-                print("Ошибка ввода.")
-
-        elif choice == '3':
-            query = input("Поиск: ")
-            h, matches = search_in_rows(headers, rows, query)
-            print(f"Найдено: {len(matches)}")
-            print("\t".join(h))
-            for m in matches:
-                print("\t".join(m))
-
-        elif choice == '4':
-            cols = input(f"Столбцы (через запятую): [{', '.join(headers)}]\n")
-            col_names = [c.strip() for c in cols.split(',')]
-            new_headers, new_rows = select_columns(headers, rows, col_names)
-            if new_headers is None:
-                print(new_rows)
-            else:
-                out = input("Файл: ") or "selected.csv"
-                if not out.endswith('.csv'): out += '.csv'
-                if write_csv(out, new_headers, new_rows):
-                    print(f"Сохранено: {out}")
-
-        elif choice == '5':
-            enc = input("Кодировка (utf-8/cp1251): ").strip()
-            if enc not in ['utf-8', 'cp1251']:
-                print("Только utf-8 или cp1251")
-                continue
-            out = input("Выходной файл: ") or f"converted_{os.path.basename(file_path)}"
-            if write_csv(out, headers, rows, enc):
-                print(f"Сохранено в {enc}: {out}")
-
-        elif choice == '6':
-            h, r = remove_duplicates(headers, rows)
-            out = input("Файл без дублей: ") or "dedup.csv"
-            if write_csv(out, h, r):
-                print(f"Дубли удалены. Сохранено: {out}")
-                rows[:] = r  # обновляем
-
-        elif choice == '7':
-            col = input(f"Столбец для свода? [{', '.join(headers)}]: ")
-            h, r = group_by_column(headers, rows, col)
-            if h is None:
-                print(r)
-            else:
-                out = input("Файл свода: ") or "group.csv"
-                if write_csv(out, h, r):
-                    print(f"Свод сохранён: {out}")
-
-        elif choice == '8':
-            try:
-                n = int(input("Размер части: "))
-                base = input("Имя частей: ") or "part"
-                zip_name = input("ZIP файл: ") or "parts.zip"
-                h, chunks = split_into_chunks(headers, rows, n)
-                if zip_chunks(chunks, h, base, zip_name):
-                    print(f"Части упакованы: {zip_name}")
-                else:
-                    print("Ошибка упаковки.")
-            except:
-                print("Ошибка ввода.")
-
-        elif choice == '9':
-            print("Выход.")
-            break
-
-        else:
-            print("Неверный выбор.")
-
-def run_commands(headers, rows, file_path, args):
-    actions = []
-    output_encoding = 'utf-8'
-
-    i = 1
-    while i < len(args):
-        arg = args[i]
-        if arg == '--count':
-            cnt, cols = count_rows(headers, rows)
-            print(f"COUNT: {cnt} строк, {cols} столбцов")
-        elif arg == '--head' and i+1 < len(args):
-            n = int(args[i+1]); i += 1
+def execute_action(action, headers, rows, original_headers, original_rows):
+    """Выполняет действие и возвращает (headers, rows, should_continue)"""
+    
+    if action == 1:  # Подсчитать строки
+        cnt, cols = count_rows(headers, rows)
+        print(f"\n✓ Строк: {cnt}, Столбцов: {cols}")
+        return headers, rows, True
+    
+    elif action == 2:  # Показать первые N
+        try:
+            n = int(input("Сколько строк показать? "))
+            if n <= 0:
+                print("Число должно быть положительным")
+                return headers, rows, True
             h, r = get_first_n(headers, rows, n)
-            print("\t".join(h))
-            for row in r: print("\t".join(row))
-        elif arg == '--search' and i+1 < len(args):
-            query = args[i+1]; i += 1
-            h, matches = search_in_rows(headers, rows, query)
-            print(f"SEARCH '{query}' → {len(matches)} результатов")
-            for m in matches: print("\t".join(m))
-        elif arg == '--select' and i+1 < len(args):
-            cols = [c.strip() for c in args[i+1].split(',')]; i += 1
-            h, r = select_columns(headers, rows, cols)
-            if h: write_csv('selected.csv', h, r); print("SELECT → selected.csv")
-            else: print(r)
-        elif arg == '--dedup':
-            headers, rows = remove_duplicates(headers, rows)
-            print(f"DEDUP: осталось {len(rows)} строк")
-        elif arg == '--zip' and i+1 < len(args):
-            n = int(args[i+1]); i += 1
-            h, chunks = split_into_chunks(headers, rows, n)
-            if zip_chunks(chunks, h, 'part', 'split.zip'):
-                print("ZIP: split.zip готов")
-            else:
-                print("Ошибка ZIP")
+            print("\n" + "\t".join(h))
+            for row in r:
+                print("\t".join(row))
+            return headers, rows, True
+        except ValueError:
+            print("Введите число")
+            return headers, rows, True
+    
+    elif action == 3:  # Фильтр по тексту
+        query = input("Введите текст для фильтра: ")
+        h, filtered = filter_by_text(headers, rows, query)
+        filtered_count = len(filtered)
+        print(f"\n✓ Отфильтровано: {filtered_count} строк")
+        print("\t".join(h))
+        for row in filtered:
+            print("\t".join(row))
+        return h, filtered, True
+    
+    elif action == 4:  # Выбрать столбцы
+        print(f"\nДоступные столбцы: {', '.join(headers)}")
+        cols = input("Столбцы через запятую: ")
+        names = [c.strip() for c in cols.split(',')]
+        h, r = select_columns(headers, rows, names)
+        if h:
+            print(f"✓ Выбрано {len(h)} столбцов")
+            return h, r, True
         else:
-            print(f"Неизвестный аргумент: {arg}")
-        i += 1
+            print("✗ Ошибка: неверные столбцы")
+            return headers, rows, True
+    
+    elif action == 5:  # Удалить дубли
+        h, r = remove_duplicates(headers, rows)
+        deleted = len(rows) - len(r)
+        print(f"✓ Удалено дублей: {deleted}")
+        return h, r, True
+    
+    elif action == 6:  # Свод по столбцу
+        print(f"\nДоступные столбцы: {', '.join(headers)}")
+        col = input("Столбец для свода: ")
+        h, r = group_by_column(headers, rows, col)
+        if h:
+            print(f"\n✓ Свод по '{col}':")
+            print("\t".join(h))
+            for row in r:
+                print("\t".join(row))
+            return h, r, True
+        else:
+            print("✗ Ошибка: столбец не найден")
+            return headers, rows, True
+    
+    elif action == 7:  # Разделить в ZIP
+        try:
+            chunk_size = int(input("По сколько строк в части? "))
+            if chunk_size <= 0:
+                print("Число должно быть положительным")
+                return headers, rows, True
+            
+            base_name = input("Базовое имя частей (по умолчанию 'part'): ").strip() or "part"
+            zip_name = input("Имя ZIP-архива: ").strip()
+            if not zip_name.endswith('.zip'):
+                zip_name += '.zip'
+            
+            h, chunks = split_into_chunks(headers, rows, chunk_size)
+            if zip_chunks(chunks, h, base_name, zip_name):
+                print(f"✓ ZIP создан: {zip_name}")
+            else:
+                print("✗ Ошибка при создании ZIP")
+            return headers, rows, True
+        except ValueError:
+            print("Введите число")
+            return headers, rows, True
+    
+    elif action == 8:  # Сохранить результат
+        file_out = input("Имя выходного файла (.csv): ").strip()
+        if not file_out.endswith('.csv'):
+            file_out += '.csv'
+        
+        if write_csv(file_out, headers, rows):
+            print(f"✓ Сохранено: {file_out}")
+        else:
+            print("✗ Ошибка при сохранении")
+        return headers, rows, True
+    
+    elif action == 9:  # Сбросить к исходным
+        print("✓ Данные сброшены к исходным")
+        return original_headers, original_rows, True
+    
+    elif action == 0:  # Выход
+        return headers, rows, False
+    
+    else:
+        print("✗ Неверный выбор")
+        return headers, rows, True
+
+def interactive_mode(file_path):
+    """Интерактивный режим"""
+    print(f"\n[LBKI CSV] Обрабатываю: {file_path}")
+    
+    headers, rows, encoding = read_csv(file_path)
+    if headers is None:
+        print("✗ Не удалось прочитать файл")
+        return
+    
+    original_headers = headers
+    original_rows = rows
+    
+    print(f"✓ Кодировка: {encoding}")
+    print(f"✓ Загружено: {len(headers)} столбцов, {len(rows)} строк")
+    
+    while True:
+        print(f"\nТекущие данные: {len(headers)} столбцов, {len(rows)} строк")
+        print_menu()
+        
+        try:
+            choice = int(input("Выберите действие (0-9): "))
+            headers, rows, should_continue = execute_action(
+                choice, headers, rows, original_headers, original_rows
+            )
+            if not should_continue:
+                print("До свидания!")
+                break
+        except ValueError:
+            print("✗ Введите число")
+
+def batch_mode(file_path, actions, output_file):
+    """Режим пакетной обработки через argv"""
+    print(f"\n[LBKI CSV] Обрабатываю: {file_path}")
+    
+    headers, rows, encoding = read_csv(file_path)
+    if headers is None:
+        print("✗ Не удалось прочитать файл")
+        return
+    
+    original_headers = headers
+    original_rows = rows
+    
+    print(f"✓ Кодировка: {encoding}")
+    print(f"✓ Загружено: {len(headers)} столбцов, {len(rows)} строк")
+    
+    # Выполняем действия
+    for action_str in actions:
+        try:
+            action = int(action_str)
+            print(f"\n→ Выполняю действие {action}...")
+            headers, rows, _ = execute_action(
+                action, headers, rows, original_headers, original_rows
+            )
+        except ValueError:
+            print(f"✗ Неверное действие: {action_str}")
+            return
+    
+    # Сохраняем результат
+    if output_file:
+        if not output_file.endswith('.csv'):
+            output_file += '.csv'
+        if write_csv(output_file, headers, rows, encoding):
+            print(f"\n✓ Результат сохранён: {output_file}")
+        else:
+            print("✗ Ошибка при сохранении")
+    else:
+        print(f"\n✓ Финальные данные: {len(headers)} столбцов, {len(rows)} строк")
 
 def main():
     if len(sys.argv) < 2:
-        print_help()
-
+        print("Использование:")
+        print("  python lbki_csv_cli.py <файл.csv>                    # Интерактивный режим")
+        print("  python lbki_csv_cli.py <файл.csv> 4 5 8 <output.csv> # Пакетный режим")
+        print("\nДействия:")
+        print("  1 - Подсчитать строки")
+        print("  2 - Показать первые N")
+        print("  3 - Поиск")
+        print("  4 - Выбрать столбцы")
+        print("  5 - Удалить дубли")
+        print("  6 - Свод по столбцу")
+        print("  7 - Разделить в ZIP")
+        print("  8 - Сохранить результат")
+        print("  9 - Сбросить к исходным")
+        sys.exit(1)
+    
     file_path = sys.argv[1]
+    
     if not os.path.isfile(file_path):
-        print(f"Файл не найден: {file_path}")
+        print(f"✗ Файл не найден: {file_path}")
         sys.exit(1)
-
-    headers, rows, encoding = read_csv(file_path)
-    if headers is None:
-        print("Ошибка чтения файла.")
-        sys.exit(1)
-
-    print(f"Загружено: {len(headers)} столбцов, {len(rows)} строк")
-
-    if len(sys.argv) == 2:
-        main_menu(headers, rows, file_path)
+    
+    # Проверяем, есть ли действия в argv
+    if len(sys.argv) > 2:
+        # Пакетный режим
+        actions = sys.argv[2:-1]
+        output_file = sys.argv[-1]
+        batch_mode(file_path, actions, output_file)
     else:
-        run_commands(headers, rows, file_path, sys.argv[2:])
+        # Интерактивный режим
+        interactive_mode(file_path)
 
 if __name__ == "__main__":
     main()
